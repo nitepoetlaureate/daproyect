@@ -1,0 +1,23 @@
+# FastAPI, ASGI server, and validation
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.2
+
+# Redis Pub/Sub & Swarm ARQ
+redis==5.0.1
+arq==0.25.0
+
+# Stealth Networking (Multi-Hop SOCKS Proxy)
+aiohttp==3.9.1
+aiohttp-socks==0.8.4
+PySocks==1.7.1
+requests==2.31.0
+
+# PostGIS/PostgreSQL ORM & Driver
+SQLAlchemy==2.0.23
+asyncpg==0.29.0
+geoalchemy2==0.14.2
+
+# Zeep for onvif-python PTZ Control
+zeep==4.2.1
+onvif-zeep==0.2.12

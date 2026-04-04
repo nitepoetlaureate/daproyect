@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Gridland Scanner</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; }
+        #scan-output {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 1em;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            height: 400px;
+            overflow-y: scroll;
+        }
+    </style>
+</head>
+<body>
+    <h1>Gridland Security Scanner</h1>
+    <div>
+        <input type="text" id="target-input" placeholder="e.g., 192.168.1.0/24">
+        <button id="start-scan-btn">Start Scan</button>
+    </div>
+    <h2>Results</h2>
+    <table id="results-table">
+        <thead>
+            <tr>
+                <th>IP Address</th>
+                <th>Open Ports</th>
+                <th>Brand</th>
+                <th>Credentials</th>
+                <th>Streams</th>
+                <th>Vulnerabilities</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+
+    <h2>Raw Scan Log</h2>
+    <pre id="scan-output"></pre>
+    <script>
+        const scanBtn = document.getElementById('start-scan-btn');
+        const targetInput = document.getElementById('target-input');
+        const outputEl = document.getElementById('scan-output');
+        const resultsTableBody = document.querySelector('#results-table tbody');
+
+        scanBtn.addEventListener('click', async () => {
+            const target = targetInput.value;
+            if (!target) {
+                alert('Please enter a target.');
+                return;
+            }
+
+            // Clear previous output
+            outputEl.textContent = `Starting scan on ${target}...\n`;
+            resultsTableBody.innerHTML = '';
+            scanBtn.disabled = true;
+
+            try {
+                // Submit the job
+                const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                const response = await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ target: target })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const jobData = await response.json();
+                const jobId = jobData.job_id;
+                
+                outputEl.textContent += `Job created: ${jobId}\n`;
+                outputEl.textContent += `Polling for results...\n`;
+
+                // Poll for job status
+                pollJobStatus(jobId);
+
+            } catch (error) {
+                outputEl.textContent += `Error: ${error.message}\n`;
+                scanBtn.disabled = false;
+            }
+        });
+
+        async function pollJobStatus(jobId) {
+            let lastLogLength = 0;
+            const pollInterval = 1000; // 1 second
+
+            const poll = async () => {
+                try {
+                    const response = await fetch(`/api/jobs/${jobId}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const job = await response.json();
+                    
+                    // Update logs (only show new ones)
+                    if (job.logs && job.logs.length > lastLogLength) {
+                        const newLogs = job.logs.slice(lastLogLength);
+                        newLogs.forEach(log => {
+                            outputEl.textContent += log + '\n';
+                        });
+                        lastLogLength = job.logs.length;
+                        outputEl.scrollTop = outputEl.scrollHeight;
+                    }
+
+                    // Update results table
+                    if (job.results && job.results.length > 0) {
+                        resultsTableBody.innerHTML = ''; // Clear existing
+                        job.results.forEach(result => {
+                            addResultToTable(result);
+                        });
+                    }
+
+                    // Check if job is complete
+                    if (job.status === 'completed' || job.status === 'failed') {
+                        outputEl.textContent += `\n[SCAN ${job.status.toUpperCase()}]\n`;
+                        scanBtn.disabled = false;
+                        return;
+                    }
+
+                    // Continue polling
+                    setTimeout(poll, pollInterval);
+
+                } catch (error) {
+                    outputEl.textContent += `Polling error: ${error.message}\n`;
+                    scanBtn.disabled = false;
+                }
+            };
+
+            poll();
+        }
+
+        function addResultToTable(result) {
+            const row = resultsTableBody.insertRow();
+            row.insertCell(0).textContent = result.ip;
+            
+            // Handle port display - extract port numbers from PortResult objects
+            const ports = result.open_ports.map(p => p.port || p).join(', ');
+            row.insertCell(1).textContent = ports;
+            
+            row.insertCell(2).textContent = result.brand || 'N/A';
+
+            const creds = result.credentials ? Object.keys(result.credentials).join(', ') : '';
+            row.insertCell(3).textContent = creds || 'None';
+
+            const streams = result.streams ? result.streams.join(', ') : '';
+            row.insertCell(4).textContent = streams || 'None';
+
+            const vulns = result.vulnerabilities ? result.vulnerabilities.join(', ') : '';
+            row.insertCell(5).textContent = vulns || 'None';
+        }
+    </script>
+</body>
+</html>

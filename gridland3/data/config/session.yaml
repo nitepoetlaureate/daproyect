@@ -1,0 +1,19 @@
+session:
+  default_timeout: 30.0
+  verify_ssl: false
+  max_redirects: 3
+  rate_limit: 1.0
+  
+evasion:
+  user_agents:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/121.0"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) Firefox/121.0"
+    - "Mozilla/5.0 (Windows NT 10.0; Trident/7.0; rv:11.0) like Gecko"
+  
+proxies:
+  enabled: false
+  rotation: false
+  pool: []

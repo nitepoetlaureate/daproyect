@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  database:
+    image: postgis/postgis:15-3.4
+    container_name: aegis_postgis
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aegis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tactical_aegis_db_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-aegis_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegis} -d ${POSTGRES_DB:-aegis_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis_broker:
+    image: redis:7-alpine
+    container_name: aegis_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: aegis_mediamtx
+    environment:
+      - MTX_WEBRTC=yes
+      - MTX_WEBRTCADDRESS=:8889
+      - MTX_RTSP=yes
+      - MTX_RTSPADDRESS=:8554
+      - MTX_protocols=tcp
+    ports:
+      - "8554:8554" # RTSP
+      - "8889:8889" # WebRTC
+      - "8888:8888" # API
+    restart: unless-stopped
+
+volumes:
+  postgis_data:
+  redis_data:

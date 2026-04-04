@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/michaelraftery/gridland3/**)",
+      "Read(//Users/michaelraftery/gridland3/**)",
+      "Read(//Users/michaelraftery/gridland3/**)",
+      "Read(//Users/michaelraftery/gridland3/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

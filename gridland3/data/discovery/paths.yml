@@ -1,0 +1,361 @@
+# Paths for the discovery scanner.
+# This file consolidates paths from the old config_scanner and web_interface_scanner.
+#
+# Each entry has:
+# - category: A logical grouping for the paths.
+# - scan_type: What kind of check to perform.
+#   - file_check: Check for exposed files, analyze content for sensitive data.
+#   - backup_check: Check for exposed backup files, which are usually high-severity.
+#   - interface_discovery: Check for admin panels or other web interfaces.
+#   - debug_endpoint: Check for debug or status pages.
+# - paths: A list of URL paths to check.
+
+# Server-specific paths (checked first if server is identified)
+server_specific:
+  nginx:
+    path_groups:
+      - category: nginx_specific_debug
+        scan_type: debug_endpoint
+        paths:
+          - /nginx_status
+      - category: nginx_specific_config
+        scan_type: file_check
+        paths:
+          - /etc/nginx/nginx.conf
+  apache:
+    path_groups:
+      - category: apache_specific_debug
+        scan_type: debug_endpoint
+        paths:
+          - /server-status
+      - category: apache_specific_config
+        scan_type: file_check
+        paths:
+          - /.htaccess
+
+# Generic paths (checked on all servers)
+generic:
+  path_groups:
+    # ==========================================================================
+    # Configuration Files (from config_scanner.py:CONFIG_FILES and web_interface_scanner.py:SENSITIVE_PATHS)
+    # ==========================================================================
+    - category: generic_config
+      scan_type: file_check
+      paths:
+        - "/config.xml"
+        - "/config.json"
+        - "/config.php"
+        - "/config.asp"
+        - "/config.aspx"
+        - "/configuration.xml"
+        - "/configuration.json"
+        - "/app.config"
+        - "/web.config"
+        - "/settings.xml"
+        - "/settings.json"
+        - "/settings.php"
+        - "/settings.ini"
+        - "/conf/config.xml"
+        - "/etc/config"
+        - "/usr/local/etc/config"
+
+    - category: camera_specific_config
+      scan_type: file_check
+      paths:
+        - "/param.cgi"
+        - "/cgi-bin/param.cgi"
+        - "/cgi-bin/hi3510/param.cgi"
+        - "/ISAPI/System/configurationData"
+        - "/ISAPI/Security/users"
+        - "/axis-cgi/param.cgi"
+        - "/sony/config"
+        - "/panasonic/config.cgi"
+        - "/dahua/config"
+        - "/bosch/configuration"
+        - "/pelco/settings"
+
+    - category: network_config
+      scan_type: file_check
+      paths:
+        - "/network.xml"
+        - "/network.json"
+        - "/network_settings.xml"
+        - "/ip_config.xml"
+        - "/wifi_config.xml"
+        - "/ethernet_config.xml"
+        - "/dhcp.conf"
+        - "/resolv.conf"
+        - "/hosts"
+        - "/interfaces"
+
+    - category: auth_config
+      scan_type: file_check
+      paths:
+        - "/users.xml"
+        - "/users.json"
+        - "/accounts.xml"
+        - "/passwords.xml"
+        - "/auth.xml"
+        - "/authentication.xml"
+        - "/security.xml"
+        - "/permissions.xml"
+        - "/htpasswd"
+        - "/.htpasswd"
+        - "/passwd"
+        - "/shadow"
+        - "/passwords.txt"
+        - "/users.txt"
+        - "/accounts.txt"
+
+    - category: database_config
+      scan_type: file_check
+      paths:
+        - "/database.xml"
+        - "/database.json"
+        - "/db_config.xml"
+        - "/connection.xml"
+        - "/datasource.xml"
+        - "/hibernate.cfg.xml"
+        - "/persistence.xml"
+
+    # ==========================================================================
+    # Backup Files (from config_scanner.py:BACKUP_FILES and web_interface_scanner.py:SENSITIVE_PATHS)
+    # ==========================================================================
+    - category: config_backups
+      scan_type: backup_check
+      paths:
+        - "/config.bak"
+        - "/config.backup"
+        - "/config.old"
+        - "/config.orig"
+        - "/configuration.bak"
+        - "/settings.bak"
+        - "/web.config.bak"
+        - "/config.xml.bak"
+        - "/config.json.backup"
+        - "/database.bak" # from web_interface_scanner
+
+    - category: database_backups
+      scan_type: backup_check
+      paths:
+        - "/backup.sql"
+        - "/database.sql"
+        - "/dump.sql"
+        - "/export.sql"
+        - "/users.sql"
+        - "/accounts.sql"
+        - "/data.sql"
+        - "/schema.sql"
+        - "/backup.db"
+        - "/database.db"
+        - "/data.db"
+        - "/users.db"
+        - "/sqlite.db" # from web_interface_scanner
+
+    - category: system_backups
+      scan_type: backup_check
+      paths:
+        - "/backup.zip"
+        - "/backup.tar.gz"
+        - "/backup.tar"
+        - "/system_backup.zip"
+        - "/config_backup.zip"
+        - "/full_backup.tar.gz"
+        - "/export.zip"
+
+    - category: log_files # Merged log backups and sensitive log files
+      scan_type: file_check
+      paths:
+        - "/error.log"
+        - "/access.log"
+        - "/debug.log"
+        - "/system.log"
+        - "/application.log"
+        - "/security.log"
+        - "/audit.log"
+        - "/activity.log"
+
+    # ==========================================================================
+    # Web Interfaces (from web_interface_scanner.py:ADMIN_PATHS)
+    # ==========================================================================
+    - category: generic_admin_interface
+      scan_type: interface_discovery
+      paths:
+        - "/admin"
+        - "/admin/"
+        - "/admin.html"
+        - "/admin.php"
+        - "/admin.asp"
+        - "/admin.aspx"
+        - "/administrator"
+        - "/administrator/"
+        - "/administration"
+        - "/management"
+        - "/manager"
+        - "/console"
+        - "/control"
+        - "/cp"
+        - "/panel"
+        - "/home.html"
+        - "/main.html"
+        - "/index.html"
+        - "/login.html"
+        - "/auth.html"
+        - "/setup.html"
+        - "/config.html"
+        - "/settings.html"
+        - "/system.html"
+        - "/network.html"
+        - "/security.html"
+        - "/users.html"
+        - "/maintenance.html"
+
+    - category: brand_specific_interface
+      scan_type: interface_discovery
+      paths:
+        - "/ISAPI/"
+        - "/ISAPI/System/"
+        - "/ISAPI/Security/"
+        - "/dms/"
+        - "/RPC2"
+        - "/RPC2_Login"
+        - "/axis-cgi/"
+        - "/axis-cgi/admin/"
+        - "/axis-cgi/operator/"
+        - "/sony/"
+        - "/sony/admin"
+        - "/sony/config"
+        - "/panasonic/"
+        - "/panasonic/admin"
+        - "/panasonic/config"
+        - "/bosch/"
+        - "/bosch/admin"
+        - "/pelco/"
+        - "/pelco/admin"
+
+    - category: dvr_nvr_interface
+      scan_type: interface_discovery
+      paths:
+        - "/dvr/"
+        - "/nvr/"
+        - "/recorder/"
+        - "/surveillance/"
+        - "/monitor/"
+        - "/video/"
+        - "/camera/"
+        - "/stream/"
+        - "/live/"
+        - "/view/"
+
+    - category: file_management_interface
+      scan_type: interface_discovery
+      paths:
+        - "/filemanager/"
+        - "/files/"
+        - "/upload/"
+        - "/downloads/"
+        - "/editor/"
+        - "/ide/"
+        - "/phpmyadmin/"
+        - "/adminer/"
+
+    # ==========================================================================
+    # Debug and Info Endpoints (from config_scanner.py:DEBUG_ENDPOINTS and web_interface_scanner.py:ADMIN_PATHS)
+    # ==========================================================================
+    - category: debug_dev_endpoints
+      scan_type: debug_endpoint
+      paths:
+        - "/debug"
+        - "/debug/"
+        - "/debug.html"
+        - "/debug.php"
+        - "/debug.asp"
+        - "/test"
+        - "/test/"
+        - "/test.html"
+        - "/test.php"
+        - "/test.asp"
+        - "/dev"
+        - "/dev/"
+        - "/development"
+        - "/staging"
+        - "/development/" # from web_interface_scanner
+        - "/staging/" # from web_interface_scanner
+
+    - category: system_info_endpoints
+      scan_type: debug_endpoint
+      paths:
+        - "/info"
+        - "/info.php"
+        - "/phpinfo.php"
+        - "/system_info"
+        - "/server_info"
+        - "/version"
+        - "/version.txt"
+        - "/build"
+        - "/build.txt"
+        - "/release.txt"
+        - "/VERSION" # from web_interface_scanner
+        - "/git.txt" # from web_interface_scanner
+        - "/svn.txt" # from web_interface_scanner
+        - "/version.php" # from web_interface_scanner
+        - "/build.xml" # from web_interface_scanner
+
+    - category: status_pages
+      scan_type: debug_endpoint
+      paths:
+        - "/status"
+        - "/health"
+        - "/ping"
+        - "/heartbeat"
+        - "/alive"
+        - "/server-status"
+        - "/server-info" # duplicate, but ok
+        - "/stats"
+        - "/statistics"
+        - "/metrics/" # from web_interface_scanner
+        - "/analytics/" # from web_interface_scanner
+        - "/logs/" # from web_interface_scanner
+        - "/log/" # from web_interface_scanner
+        - "/logging/" # from web_interface_scanner
+        - "/reports/" # from web_interface_scanner
+        - "/report/" # from web_interface_scanner
+
+    - category: api_debug_endpoints
+      scan_type: debug_endpoint
+      paths:
+        - "/api/debug"
+        - "/api/test"
+        - "/api/status"
+        - "/api/info"
+        - "/rest/debug"
+        - "/json/debug"
+        - "/xml/debug"
+
+    - category: api_endpoints
+      scan_type: interface_discovery
+      paths:
+        - "/api/"
+        - "/api/v1/"
+        - "/api/v2/"
+        - "/rest/"
+        - "/restapi/"
+        - "/json/"
+        - "/xml/"
+        - "/soap/"
+        - "/wsdl/"
+        - "/rpc/"
+
+    # ==========================================================================
+    # Miscellaneous (from web_interface_scanner.py:SENSITIVE_PATHS)
+    # ==========================================================================
+    - category: documentation
+      scan_type: file_check
+      paths:
+        - "/readme.txt"
+        - "/README"
+        - "/INSTALL"
+        - "/CHANGELOG"
+        - "/manual.pdf"
+        - "/help.html"
+        - "/documentation/"
