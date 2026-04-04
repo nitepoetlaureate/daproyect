@@ -1,0 +1,68 @@
+# ==========================================
+# Gridland Tactical Aegis - .gitignore
+# ==========================================
+
+# ------------------------------------------
+# 1. Security & Environment (CRITICAL)
+# ------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+*api_key*
+*credentials*
+
+# ------------------------------------------
+# 2. Python & Virtual Environments
+# ------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ------------------------------------------
+# 3. Node.js & Frontend (Vite/React/deck.gl)
+# ------------------------------------------
+node_modules/
+dist/
+build/
+.npm/
+.eslintcache
+
+# ------------------------------------------
+# 4. Local Docker Volumes (Phase 3 Prep)
+# ------------------------------------------
+# Prevents agents from committing gigabytes of local test data
+/redis_data/
+/pgdata/
+/mediamtx_data/
+
+# ------------------------------------------
+# 5. OS & Editor Swap Files
+# ------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# ------------------------------------------
+# 6. Agent / Local Context Dumps
+# ------------------------------------------
+# Ignore local context summaries so they don't pollute the remote
+.mycelium_context.md
+.trae_context.md
