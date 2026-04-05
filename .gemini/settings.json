@@ -1,0 +1,5 @@
+{
+  "version": "1.0",
+  "workspace_type": "multi-agent-swarm",
+  "strict_mode": true
+}
