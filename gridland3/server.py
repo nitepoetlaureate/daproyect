@@ -18,7 +18,7 @@ from lib.orchestrator import run_scan
 load_dotenv()
 
 app = FastAPI()
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=100)
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
 import secrets
 
