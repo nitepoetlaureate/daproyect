@@ -5,6 +5,7 @@ FastAPI server launcher for Gridland
 import logging
 import os
 from datetime import datetime
+import concurrent.futures
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -17,27 +18,33 @@ from lib.orchestrator import run_scan
 load_dotenv()
 
 app = FastAPI()
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=100)
 
 import secrets
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'default-insecure-key-for-dev')
 
+from itsdangerous import URLSafeSerializer
+
+# The app has SECRET_KEY defined above
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    serializer = URLSafeSerializer(SECRET_KEY)
+
     # Get CSRF token from cookie or generate a new one
     csrf_cookie = request.cookies.get("csrf_token")
     if not csrf_cookie:
-        csrf_cookie = secrets.token_urlsafe(32)
-        request.state.csrf_token = csrf_cookie
+        raw_token = secrets.token_urlsafe(32)
+        signed_token = serializer.dumps(raw_token)
+        request.state.csrf_token = signed_token
+        csrf_cookie_to_set = signed_token
     else:
         request.state.csrf_token = csrf_cookie
+        csrf_cookie_to_set = None
 
     # Validate CSRF for mutable methods
     if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
-        # Check header
         submitted_token = request.headers.get("X-CSRFToken")
-
-        # If not in header, check form data
         if not submitted_token:
             try:
                 form = await request.form()
@@ -45,14 +52,25 @@ async def add_security_headers(request: Request, call_next):
             except Exception:
                 pass
 
-        if not submitted_token or not secrets.compare_digest(submitted_token, csrf_cookie):
+        # Validate that we can unsign it and it matches the cookie
+        is_valid = False
+        if submitted_token and csrf_cookie:
+            try:
+                # the submitted token is the signed one, compare with cookie
+                if secrets.compare_digest(submitted_token, csrf_cookie):
+                    # also verify it can be loaded
+                    serializer.loads(submitted_token)
+                    is_valid = True
+            except Exception:
+                pass
+
+        if not is_valid:
             return JSONResponse(status_code=403, content={"error": "CSRF token missing or invalid"})
 
     response = await call_next(request)
 
-    # Set CSRF cookie if it wasn't there
-    if "csrf_token" not in request.cookies:
-        response.set_cookie("csrf_token", request.state.csrf_token, httponly=True, samesite="lax", secure=False) # secure=False for dev
+    if csrf_cookie_to_set:
+        response.set_cookie("csrf_token", csrf_cookie_to_set, httponly=True, samesite="lax", secure=False)
 
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:"
@@ -71,7 +89,7 @@ async def scan_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, req
         return JSONResponse(status_code=400, content={"error": "Target is required"})
     try:
         job = create_job(target)
-        background_tasks.add_task(run_scan, job.id, target, True, 100)
+        executor.submit(run_scan, job.id, target, True, 100)
         return {"status": "accepted", "job_id": job.id, "target": target, "action": "scan"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
@@ -83,7 +101,7 @@ async def discover_endpoint(req: ScanRequest, background_tasks: BackgroundTasks,
         return JSONResponse(status_code=400, content={"error": "Target is required"})
     try:
         job = create_job(target)
-        background_tasks.add_task(run_scan, job.id, target, False, 100) # Discover is non-aggressive perhaps
+        executor.submit(run_scan, job.id, target, False, 100) # Discover is non-aggressive perhaps
         return {"status": "accepted", "job_id": job.id, "target": target, "action": "discover"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
@@ -157,7 +175,7 @@ async def index(request: Request):
     web_logger.debug(f"Request from {client_host}")
     if templates:
         token = request.state.csrf_token
-        return templates.TemplateResponse("index.html", {"request": request, "csrf_token": lambda: token})
+        return templates.TemplateResponse("index.html", {"request": request, "csrf_token": token})
     else:
         # Fallback if templates directory doesn't exist during fast iteration
         return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
@@ -186,7 +204,7 @@ async def submit_job(job_req: JobRequest, background_tasks: BackgroundTasks, req
 
         # Run the scan in a background task (FastAPI native)
         web_logger.info(f"Starting background scan task for job {job.id}")
-        background_tasks.add_task(run_scan, job.id, target, True, 100) # aggressive=True, threads=100 for now
+        executor.submit(run_scan, job.id, target, True, 100) # aggressive=True, threads=100 for now
         web_logger.debug(f"Background task scheduled for job {job.id}")
 
         web_logger.info(f"Job {job.id} successfully submitted")
