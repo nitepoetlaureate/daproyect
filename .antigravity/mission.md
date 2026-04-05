@@ -1,9 +1,11 @@
-# Current Swarm Objective
-**Primary Goal:** Stabilize the FastAPI Migration (PR #2).
+# Current Mission: Phase 2 - Celery Integration
+**Primary Goal:** Decouple the FastAPI web tier from the legacy scanning engine.
 
 **Current State:**
-- The cloud agent (Jules) has fixed the asynchronous event loop blocking.
-- The local QA Adversary is holding the line and rejecting the PR due to a CSRF vulnerability (default secret key fallback) and a Jinja2 `TemplateResponse` syntax crash.
+FastAPI is routing traffic, but `lib.orchestrator.run_scan` is dangerously heavy. 
 
-**Next Actions:**
-No new feature development is permitted until Jules pushes the fixes for PR #2 and the local QA Adversary reports a 100% pass rate on the asynchronous API tests.
+**Your Tasks:**
+1. Scaffold a `Celery` application instance.
+2. Create Celery tasks that wrap the legacy `run_scan` and `run_discover` functions.
+3. Refactor `server.py` to dispatch jobs to Celery rather than the internal `ThreadPoolExecutor`.
+4. Ensure the endpoints still return a `202 Accepted` with a tracking ID immediately upon dispatch.

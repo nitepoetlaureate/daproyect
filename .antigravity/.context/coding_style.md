@@ -1,11 +1,10 @@
-# Global Coding Standards & Anti-Patterns
+# Task Queue Standards (Phase 2)
 
-## Unacceptable Practices (Failure Conditions)
-- **God Objects / God Files:** No file should exceed 500 lines. Break logic down into focused modules.
-- **YAGNI (You Aren't Gonna Need It):** Do NOT build abstractions, interfaces, or generic base classes for features that do not exist yet. Write simple, direct code for the exact task requested.
-- **Route Bloat:** Zero business logic is allowed inside API route handlers (e.g., `server.py`). Routes only handle HTTP translation; logic goes in `services/` or `lib/`.
-- **Insecure Defaults:** Never use `'default-insecure-key'` fallbacks. If an environment secret is missing, the application MUST crash immediately on startup.
+## Architectural Mandates
+- **Task Framework:** You MUST use `Celery`. Alternative queues like ARQ or RQ are strictly forbidden due to their inability to safely sandbox thread-heavy legacy code.
+- **Broker:** Use `Redis` (running locally on `redis://localhost:6379/0`).
+- **Isolation:** You must utilize Celery's default prefork multiprocessing pool. Do not force Gevent or Eventlet, as the legacy `run_scan` spawns its own threads and requires hard OS process isolation.
 
-## Stack Requirements
-- Backend: Python 3.11+, strict typing (`mypy`), asynchronous FastAPI.
-- Frontend: React, JSX, functional components.
+## Code Structure
+- **YAGNI:** Do not build complex class-based worker factories. Define your Celery application in a clean `worker.py` or `tasks.py` file.
+- **API Integration:** Modify the existing `/scan` and `/discover` endpoints in `server.py` to use `celery_app.send_task()` instead of `executor.submit()`. 
