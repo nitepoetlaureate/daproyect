@@ -177,7 +177,7 @@ async def index(request: Request):
     web_logger.debug(f"Request from {client_host}")
     if templates:
         token = request.state.csrf_token
-        return templates.TemplateResponse(name="index.html", context={"request": request, "csrf_token": token})
+        return templates.TemplateResponse(request, "index.html", {"csrf_token": token})
     else:
         # Fallback if templates directory doesn't exist during fast iteration
         return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
