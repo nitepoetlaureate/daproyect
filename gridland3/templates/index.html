@@ -1,166 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>Gridland Scanner</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f4; }
-        #scan-output {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
-            padding: 1em;
-            border-radius: 5px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            height: 400px;
-            overflow-y: scroll;
-        }
-    </style>
+    <meta name="description" content="Gridland Tactical Aegis — Real-time security reconnaissance dashboard">
+    <title>GRIDLAND // TACTICAL AEGIS</title>
+
+    <!-- Air-gapped assets — no CDNs -->
+    <link rel="stylesheet" href="/static/pico.classless.min.css">
+    <link rel="stylesheet" href="/static/aegis.css">
 </head>
 <body>
-    <h1>Gridland Security Scanner</h1>
-    <div>
-        <input type="text" id="target-input" placeholder="e.g., 192.168.1.0/24">
-        <button id="start-scan-btn">Start Scan</button>
+    <div class="aegis-grid">
+
+        <!-- ═══ HEADER BAR ═══════════════════════════════════════ -->
+        <div class="grid-header">
+            <h1 class="aegis-title">
+                GRIDLAND<span class="subtitle">TACTICAL AEGIS</span>
+            </h1>
+
+            <div id="status-badge"></div>
+
+            <form class="scan-form"
+                  hx-post="/api/scan"
+                  hx-target="#scan-live-area"
+                  hx-swap="innerHTML"
+                  hx-indicator="#scan-spinner"
+                  hx-disabled-elt="find button">
+
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <input type="text"
+                       name="target"
+                       id="target-input"
+                       placeholder="192.168.1.0/24"
+                       required
+                       autocomplete="off"
+                       spellcheck="false">
+
+                <select name="scan_mode" id="scan-mode">
+                    <option value="discover">PASSIVE</option>
+                    <option value="aggressive">AGGRESSIVE</option>
+                </select>
+
+                <button type="submit" id="scan-btn">▶ SCAN</button>
+
+                <span id="scan-spinner" class="htmx-indicator badge badge-running" style="display:none;">…</span>
+            </form>
+        </div>
+
+        <!-- ═══ TARGETS PANEL ════════════════════════════════════ -->
+        <div class="grid-targets">
+            <p class="panel-title">DISCOVERED TARGETS</p>
+            <div id="targets-content">
+                <p class="text-muted font-data" style="font-size:0.75rem;">Enter a target and press SCAN to begin.</p>
+            </div>
+        </div>
+
+        <!-- ═══ INTEL PANEL ══════════════════════════════════════ -->
+        <div class="grid-intel">
+            <p class="panel-title">INTELLIGENCE FEED</p>
+            <div id="intel-content">
+                <p class="text-muted font-data" style="font-size:0.75rem;">No intel collected.</p>
+            </div>
+        </div>
+
+        <!-- ═══ LOG FEED ═════════════════════════════════════════ -->
+        <div class="grid-logs">
+            <div class="log-header">
+                <p class="log-header-title">LIVE SCAN LOG</p>
+            </div>
+            <div id="log-feed"></div>
+        </div>
+
     </div>
-    <h2>Results</h2>
-    <table id="results-table">
-        <thead>
-            <tr>
-                <th>IP Address</th>
-                <th>Open Ports</th>
-                <th>Brand</th>
-                <th>Credentials</th>
-                <th>Streams</th>
-                <th>Vulnerabilities</th>
-            </tr>
-        </thead>
-        <tbody>
-        </tbody>
-    </table>
 
-    <h2>Raw Scan Log</h2>
-    <pre id="scan-output"></pre>
+    <!--
+        SSE-connected area: The /api/scan POST returns an HTML fragment
+        containing the hx-ext="sse" container. When HTMX swaps it in,
+        the SSE connection is established and begins pushing into
+        #targets-panel, #intel-panel, #log-feed, and #status-badge.
+
+        We use a hidden div as the swap target; the SSE within it
+        targets the visible grid panels via their IDs.
+    -->
+    <div id="scan-live-area" style="display:none;"></div>
+
+    <!-- Air-gapped scripts -->
+    <script src="/static/htmx.min.js"></script>
+
     <script>
-        const scanBtn = document.getElementById('start-scan-btn');
-        const targetInput = document.getElementById('target-input');
-        const outputEl = document.getElementById('scan-output');
-        const resultsTableBody = document.querySelector('#results-table tbody');
+        (function() {
+            'use strict';
 
-        scanBtn.addEventListener('click', async () => {
-            const target = targetInput.value;
-            if (!target) {
-                alert('Please enter a target.');
-                return;
-            }
+            const logFeed = document.getElementById('log-feed');
+            const targetsContent = document.getElementById('targets-content');
+            const intelContent = document.getElementById('intel-content');
+            const statusBadge = document.getElementById('status-badge');
+            const scanBtn = document.getElementById('scan-btn');
+            const MAX_LOG_LINES = 50;
 
-            // Clear previous output
-            outputEl.textContent = `Starting scan on ${target}...\n`;
-            resultsTableBody.innerHTML = '';
-            scanBtn.disabled = true;
+            let currentEventSource = null;
 
-            try {
-                // Submit the job
-                const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-                const response = await fetch('/api/jobs', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': csrfToken
-                    },
-                    body: JSON.stringify({ target: target })
+            // ── MutationObserver: 50-line FIFO log enforcer ──────
+            const observer = new MutationObserver(() => {
+                while (logFeed.children.length > MAX_LOG_LINES) {
+                    logFeed.removeChild(logFeed.firstElementChild);
+                }
+                const logsContainer = logFeed.closest('.grid-logs');
+                if (logsContainer) {
+                    logsContainer.scrollTop = logsContainer.scrollHeight;
+                }
+            });
+            observer.observe(logFeed, { childList: true });
+
+            // ── CSRF Injection on all HTMX requests ──────────────
+            document.body.addEventListener('htmx:configRequest', (e) => {
+                const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+                if (csrfMeta) {
+                    e.detail.headers['X-CSRFToken'] = csrfMeta.getAttribute('content');
+                }
+            });
+
+            // ── After HTMX form POST succeeds, parse job_id and
+            //    open a native EventSource for SSE streaming ──────
+            document.body.addEventListener('htmx:afterRequest', (e) => {
+                if (e.detail.pathInfo && e.detail.pathInfo.requestPath === '/api/scan' && e.detail.successful) {
+                    // Extract job info from the HTML response
+                    const scanArea = document.getElementById('scan-live-area');
+                    const sseRoot = scanArea.querySelector('#sse-root');
+
+                    if (sseRoot) {
+                        const sseUrl = sseRoot.getAttribute('sse-connect');
+                        if (sseUrl) {
+                            connectSSE(sseUrl);
+                        }
+                    }
+
+                    // Update status badge from the returned fragment
+                    const badge = scanArea.querySelector('.badge');
+                    if (badge) {
+                        statusBadge.innerHTML = badge.outerHTML;
+                    }
+
+                    // Disable scan button while live
+                    scanBtn.disabled = true;
+                    scanBtn.textContent = '● LIVE';
+                }
+            });
+
+            function connectSSE(url) {
+                // Close existing connection if any
+                if (currentEventSource) {
+                    currentEventSource.close();
+                }
+
+                currentEventSource = new EventSource(url);
+
+                currentEventSource.addEventListener('targets', (e) => {
+                    targetsContent.innerHTML = e.data;
                 });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                currentEventSource.addEventListener('intel', (e) => {
+                    intelContent.innerHTML = e.data;
+                });
 
-                const jobData = await response.json();
-                const jobId = jobData.job_id;
-                
-                outputEl.textContent += `Job created: ${jobId}\n`;
-                outputEl.textContent += `Polling for results...\n`;
-
-                // Poll for job status
-                pollJobStatus(jobId);
-
-            } catch (error) {
-                outputEl.textContent += `Error: ${error.message}\n`;
-                scanBtn.disabled = false;
-            }
-        });
-
-        async function pollJobStatus(jobId) {
-            let lastLogLength = 0;
-            const pollInterval = 1000; // 1 second
-
-            const poll = async () => {
-                try {
-                    const response = await fetch(`/api/jobs/${jobId}`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
+                currentEventSource.addEventListener('logs', (e) => {
+                    // Create a temp container to parse the HTML fragment
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = e.data;
+                    while (tmp.firstChild) {
+                        logFeed.appendChild(tmp.firstChild);
                     }
+                });
 
-                    const job = await response.json();
-                    
-                    // Update logs (only show new ones)
-                    if (job.logs && job.logs.length > lastLogLength) {
-                        const newLogs = job.logs.slice(lastLogLength);
-                        newLogs.forEach(log => {
-                            outputEl.textContent += log + '\n';
-                        });
-                        lastLogLength = job.logs.length;
-                        outputEl.scrollTop = outputEl.scrollHeight;
-                    }
+                currentEventSource.addEventListener('status', (e) => {
+                    statusBadge.innerHTML = e.data;
 
-                    // Update results table
-                    if (job.results && job.results.length > 0) {
-                        resultsTableBody.innerHTML = ''; // Clear existing
-                        job.results.forEach(result => {
-                            addResultToTable(result);
-                        });
-                    }
-
-                    // Check if job is complete
-                    if (job.status === 'completed' || job.status === 'failed') {
-                        outputEl.textContent += `\n[SCAN ${job.status.toUpperCase()}]\n`;
+                    // If terminal state, clean up
+                    if (e.data.includes('badge-done') || e.data.includes('badge-failed')) {
+                        currentEventSource.close();
+                        currentEventSource = null;
                         scanBtn.disabled = false;
-                        return;
+                        scanBtn.textContent = '▶ SCAN';
                     }
+                });
 
-                    // Continue polling
-                    setTimeout(poll, pollInterval);
-
-                } catch (error) {
-                    outputEl.textContent += `Polling error: ${error.message}\n`;
+                currentEventSource.onerror = () => {
+                    // SSE closed by server (normal on completion) or error
+                    if (currentEventSource) {
+                        currentEventSource.close();
+                        currentEventSource = null;
+                    }
                     scanBtn.disabled = false;
-                }
-            };
-
-            poll();
-        }
-
-        function addResultToTable(result) {
-            const row = resultsTableBody.insertRow();
-            row.insertCell(0).textContent = result.ip;
-            
-            // Handle port display - extract port numbers from PortResult objects
-            const ports = result.open_ports.map(p => p.port || p).join(', ');
-            row.insertCell(1).textContent = ports;
-            
-            row.insertCell(2).textContent = result.brand || 'N/A';
-
-            const creds = result.credentials ? Object.keys(result.credentials).join(', ') : '';
-            row.insertCell(3).textContent = creds || 'None';
-
-            const streams = result.streams ? result.streams.join(', ') : '';
-            row.insertCell(4).textContent = streams || 'None';
-
-            const vulns = result.vulnerabilities ? result.vulnerabilities.join(', ') : '';
-            row.insertCell(5).textContent = vulns || 'None';
-        }
+                    scanBtn.textContent = '▶ SCAN';
+                };
+            }
+        })();
     </script>
 </body>
 </html>

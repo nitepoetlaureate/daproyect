@@ -1,0 +1,69 @@
+{# intel.html — Aggregated vulns + creds across all targets #}
+{% set all_vulns = [] %}
+{% set all_creds = [] %}
+{% set all_cves = [] %}
+
+{% for device in results %}
+    {% for vuln in device.vulnerabilities %}
+        {% if 'CVE-' in vuln %}
+            {% if all_cves.append({'ip': device.ip, 'text': vuln}) %}{% endif %}
+        {% else %}
+            {% if all_vulns.append({'ip': device.ip, 'text': vuln}) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    {% for cred, endpoint in device.credentials.items() %}
+        {% if all_creds.append({'ip': device.ip, 'cred': cred, 'endpoint': endpoint}) %}{% endif %}
+    {% endfor %}
+{% endfor %}
+
+{# ── Compromised Access ── #}
+<div class="intel-section">
+    <h3 class="intel-heading text-amber">⚠ COMPROMISED ACCESS</h3>
+    {% if all_creds %}
+    <div class="intel-list">
+        {% for c in all_creds %}
+        <div class="intel-entry intel-cred">
+            <span class="intel-ip font-data">{{ c.ip }}</span>
+            <span class="intel-detail font-data text-amber">{{ c.cred }}</span>
+            <span class="intel-endpoint font-data text-muted">→ {{ c.endpoint }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted font-data">No credentials found.</p>
+    {% endif %}
+</div>
+
+{# ── CVE Matches ── #}
+<div class="intel-section">
+    <h3 class="intel-heading text-red">⬤ CVE MATCHES</h3>
+    {% if all_cves %}
+    <div class="intel-list">
+        {% for cve in all_cves %}
+        <div class="intel-entry intel-cve">
+            <span class="intel-ip font-data">{{ cve.ip }}</span>
+            <span class="intel-detail font-data text-red">{{ cve.text }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted font-data">No CVE matches.</p>
+    {% endif %}
+</div>
+
+{# ── Vulnerabilities ── #}
+<div class="intel-section">
+    <h3 class="intel-heading text-red">▲ VULNERABILITIES</h3>
+    {% if all_vulns %}
+    <div class="intel-list">
+        {% for v in all_vulns %}
+        <div class="intel-entry intel-vuln">
+            <span class="intel-ip font-data">{{ v.ip }}</span>
+            <span class="intel-detail font-data">{{ v.text }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted font-data">No vulnerabilities detected.</p>
+    {% endif %}
+</div>

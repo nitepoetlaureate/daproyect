@@ -1,0 +1,46 @@
+{# targets.html — Device card loop, rendered as SSE fragment #}
+{% if results %}
+{% for device in results %}
+<article class="device-card">
+    <header class="device-card-header">
+        <span class="device-ip font-data">{{ device.ip }}</span>
+        {% if device.brand %}
+        <span class="badge badge-brand">{{ device.brand }}</span>
+        {% endif %}
+        {% if device.device_type %}
+        <span class="badge badge-type">{{ device.device_type }}</span>
+        {% endif %}
+    </header>
+
+    {% if device.open_ports %}
+    <div class="port-list">
+        {% for p in device.open_ports %}
+        <span class="port-badge{% if p.service == 'rtsp' %} port-rtsp{% endif %}">
+            {{ p.port }}{% if p.service %}/{{ p.service }}{% endif %}
+        </span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if device.streams %}
+    <div class="stream-list">
+        <span class="label text-cyan">STREAMS</span>
+        {% for stream in device.streams %}
+        <a href="{{ stream }}" class="stream-link font-data" target="_blank" rel="noopener">{{ stream }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if device.credentials %}
+    <div class="cred-inline">
+        <span class="label text-amber">ACCESS</span>
+        {% for cred, endpoint in device.credentials.items() %}
+        <span class="cred-entry font-data">{{ cred }} → {{ endpoint }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</article>
+{% endfor %}
+{% else %}
+<p class="text-muted">No targets discovered yet.</p>
+{% endif %}

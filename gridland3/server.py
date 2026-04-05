@@ -5,17 +5,23 @@ FastAPI server launcher for Gridland.
 All scan work is dispatched to Celery workers via Redis.
 Job state is queried directly from Redis via AsyncResult — there is
 no shared in-memory state between this process and the workers.
+
+Phase 3: SSE streaming via sse-starlette pushes Jinja2 HTML
+fragments to the HTMX frontend in real time.
 """
+import asyncio
 import logging
 import os
 from datetime import datetime
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Form, Request, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from celery.result import AsyncResult
+from sse_starlette.sse import EventSourceResponse
 
 from celery_app import celery_app
 from lib.tasks import celery_run_scan, celery_run_discover
@@ -27,6 +33,13 @@ from itsdangerous import URLSafeSerializer
 load_dotenv()
 
 app = FastAPI()
+
+# ── Static Assets (air-gapped HTMX, PicoCSS, fonts) ─────────────────
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if not os.path.exists(_static_dir):
+    _static_dir = os.path.join(os.path.dirname(__file__), "gridland3", "static")
+if os.path.exists(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 SECRET_KEY = os.environ.get('SECRET_KEY')
 if SECRET_KEY is None:
@@ -256,6 +269,99 @@ async def get_job_status(job_id: str, request: Request):
     else:
         # Catch-all for custom states
         return {"id": job_id, "status": result.state.lower(), "logs": [], "results": []}
+
+
+# ── Phase 3: HTMX Scan Submission (form POST) ───────────────────────
+@app.post('/api/scan', response_class=HTMLResponse)
+async def htmx_scan(request: Request, target: str = Form(...), scan_mode: str = Form("discover")):
+    """
+    HTMX form handler. Dispatches a Celery task and returns an HTML
+    fragment that opens an SSE connection to /api/stream/{job_id}.
+    """
+    if not target:
+        return HTMLResponse('<div class="error">Target is required</div>', status_code=400)
+
+    if scan_mode == "aggressive":
+        result = celery_run_scan.delay(target, True, 100)
+    else:
+        result = celery_run_discover.delay(target, 100)
+
+    job_id = result.id
+    web_logger.info(f"HTMX scan dispatched: job={job_id}, target={target}, mode={scan_mode}")
+
+    # Return the SSE-connected container that HTMX will swap into the page.
+    # The sse-connect opens the EventSource; our JS htmx:sseMessage listener
+    # in index.html routes each named event to the correct visible grid panel.
+    html = f"""
+    <div id="sse-root" hx-ext="sse" sse-connect="/api/stream/{job_id}" sse-swap="message">
+        <span class="badge badge-running">● LIVE — {target}</span>
+    </div>
+    """
+    return HTMLResponse(html)
+
+
+# ── Phase 3: SSE Stream (Celery → Browser) ───────────────────────────
+@app.get('/api/stream/{job_id}')
+async def stream_job(job_id: str):
+    """
+    Server-Sent Events endpoint that polls Celery AsyncResult and yields
+    Jinja2-rendered HTML fragments for each dashboard panel.
+    """
+    async def event_generator():
+        prev_log_count = 0
+
+        while True:
+            result = AsyncResult(job_id, app=celery_app)
+
+            # Extract data based on task state
+            if result.state == 'PROGRESS':
+                meta = result.info or {}
+                logs = meta.get('logs', [])
+                results_data = []
+            elif result.state == 'SUCCESS':
+                data = result.result or {}
+                logs = data.get('logs', [])
+                results_data = data.get('results', [])
+            elif result.state in ('FAILURE', 'REVOKED'):
+                yield {"event": "status", "data": '<span class="badge badge-failed">FAILED</span>'}
+                yield {"event": "logs", "data": f'<span class="log-line log-error">[ERROR] Job {job_id} failed: {result.info}</span>'}
+                return
+            else:
+                # PENDING or STARTED — no data yet
+                logs = []
+                results_data = []
+
+            # Render targets partial
+            if results_data and templates:
+                targets_html = templates.get_template("partials/targets.html").render(
+                    results=results_data
+                )
+                yield {"event": "targets", "data": targets_html}
+
+                # Render intel partial
+                intel_html = templates.get_template("partials/intel.html").render(
+                    results=results_data
+                )
+                yield {"event": "intel", "data": intel_html}
+
+            # Render only NEW log lines (append mode)
+            if logs and len(logs) > prev_log_count:
+                new_logs = logs[prev_log_count:]
+                prev_log_count = len(logs)
+                if templates:
+                    logs_html = templates.get_template("partials/logs.html").render(
+                        logs=new_logs
+                    )
+                    yield {"event": "logs", "data": logs_html}
+
+            # Terminal state — send final render and close
+            if result.state == 'SUCCESS':
+                yield {"event": "status", "data": '<span class="badge badge-done">COMPLETE</span>'}
+                return
+
+            await asyncio.sleep(1)
+
+    return EventSourceResponse(event_generator())
 
 
 if __name__ == '__main__':

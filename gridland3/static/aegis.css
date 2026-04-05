@@ -1,0 +1,492 @@
+/* ═══════════════════════════════════════════════════════════════════
+   AEGIS.CSS — Gridland Tactical Aegis Dashboard
+   Anti-corporate. High-density. Zero bloat.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Fonts (air-gapped) ─────────────────────────────────────────── */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/static/fonts/inter-latin-400.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/static/fonts/inter-latin-600.woff2') format('woff2');
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/static/fonts/jetbrainsmono-latin-400.woff2') format('woff2');
+}
+
+/* ── Root Tokens ────────────────────────────────────────────────── */
+:root {
+    /* Surfaces */
+    --bg-primary:    #0a0b0d;
+    --bg-panel:      #111218;
+    --bg-card:       #1a1b23;
+    --bg-card-hover: #22232e;
+    --border:        #2a2d3a;
+    --border-glow:   rgba(0, 255, 136, 0.15);
+
+    /* Data Hierarchy */
+    --text-primary:  #c8ccd4;
+    --text-muted:    #5a5e6e;
+    --accent-green:  #00ff88;
+    --accent-red:    #ff3b4e;
+    --accent-amber:  #ffb340;
+    --accent-cyan:   #00d4ff;
+    --accent-purple: #b44dff;
+
+    /* Typography */
+    --font-ui:   'Inter', system-ui, -apple-system, sans-serif;
+    --font-data: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* ── Override Pico defaults ─────────────────────────────────────── */
+:root[data-theme="dark"],
+[data-theme="dark"] {
+    --pico-background-color: var(--bg-primary);
+    --pico-card-background-color: var(--bg-card);
+    --pico-card-border-color: var(--border);
+    --pico-color: var(--text-primary);
+    --pico-muted-color: var(--text-muted);
+    --pico-primary: var(--accent-green);
+}
+
+html {
+    color-scheme: dark;
+}
+
+body {
+    font-family: var(--font-ui);
+    margin: 0;
+    padding: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow: hidden;
+    height: 100vh;
+}
+
+/* ── The Aegis Grid ─────────────────────────────────────────────── */
+.aegis-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: auto 1fr minmax(120px, 25vh);
+    grid-template-areas:
+        "header  header"
+        "targets intel"
+        "logs    logs";
+    height: 100vh;
+    gap: 1px;
+    background: var(--border);
+}
+
+.grid-header  { grid-area: header; }
+.grid-targets { grid-area: targets; }
+.grid-intel   { grid-area: intel; }
+.grid-logs    { grid-area: logs; }
+
+/* ── All panels ─────────────────────────────────────────────────── */
+.grid-header,
+.grid-targets,
+.grid-intel,
+.grid-logs {
+    background: var(--bg-panel);
+    overflow: hidden;
+}
+
+.grid-targets,
+.grid-intel {
+    overflow-y: auto;
+    padding: 0.75rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.grid-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.aegis-title {
+    font-family: var(--font-data);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-green);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    margin: 0;
+}
+
+.aegis-title .subtitle {
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+}
+
+.scan-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+}
+
+.scan-form input[type="text"] {
+    font-family: var(--font-data);
+    font-size: 0.8rem;
+    padding: 0.35rem 0.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    width: 220px;
+    margin: 0;
+}
+
+.scan-form input[type="text"]:focus {
+    border-color: var(--accent-green);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--border-glow);
+}
+
+.scan-form select {
+    font-family: var(--font-data);
+    font-size: 0.75rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    margin: 0;
+    cursor: pointer;
+}
+
+.scan-form button {
+    font-family: var(--font-data);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.35rem 1rem;
+    background: var(--accent-green);
+    color: var(--bg-primary);
+    border: none;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: opacity 0.15s ease;
+    margin: 0;
+}
+
+.scan-form button:hover {
+    opacity: 0.85;
+}
+
+.scan-form button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Status badge */
+.badge {
+    font-family: var(--font-data);
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.badge-running {
+    background: rgba(0, 255, 136, 0.15);
+    color: var(--accent-green);
+    animation: pulse-badge 1.5s ease-in-out infinite;
+}
+
+.badge-done {
+    background: rgba(0, 212, 255, 0.15);
+    color: var(--accent-cyan);
+}
+
+.badge-failed {
+    background: rgba(255, 59, 78, 0.15);
+    color: var(--accent-red);
+}
+
+.badge-brand {
+    background: rgba(180, 77, 255, 0.15);
+    color: var(--accent-purple);
+    font-size: 0.6rem;
+}
+
+.badge-type {
+    background: rgba(0, 212, 255, 0.1);
+    color: var(--accent-cyan);
+    font-size: 0.6rem;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* ── Device Cards ───────────────────────────────────────────────── */
+.device-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.5rem;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.device-card:hover {
+    border-color: var(--accent-green);
+    background: var(--bg-card-hover);
+}
+
+.device-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.device-ip {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.port-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-bottom: 0.4rem;
+}
+
+.port-badge {
+    font-family: var(--font-data);
+    font-size: 0.6rem;
+    padding: 0.1rem 0.35rem;
+    background: rgba(0, 212, 255, 0.08);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 2px;
+}
+
+.port-rtsp {
+    background: rgba(255, 179, 64, 0.1);
+    color: var(--accent-amber);
+    border-color: rgba(255, 179, 64, 0.25);
+}
+
+.stream-list,
+.cred-inline {
+    margin-top: 0.3rem;
+    padding-top: 0.3rem;
+    border-top: 1px solid var(--border);
+}
+
+.label {
+    font-family: var(--font-data);
+    font-size: 0.55rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-right: 0.5rem;
+}
+
+.stream-link {
+    font-size: 0.7rem;
+    color: var(--accent-cyan);
+    text-decoration: none;
+    display: block;
+    word-break: break-all;
+}
+
+.stream-link:hover {
+    text-decoration: underline;
+}
+
+.cred-entry {
+    font-size: 0.7rem;
+    display: block;
+    color: var(--accent-amber);
+}
+
+/* ── Intel Panel ────────────────────────────────────────────────── */
+.intel-section {
+    margin-bottom: 1rem;
+}
+
+.intel-heading {
+    font-family: var(--font-data);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0 0 0.4rem 0;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.intel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.intel-entry {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 2px;
+    font-size: 0.7rem;
+}
+
+.intel-cred {
+    background: rgba(255, 179, 64, 0.05);
+}
+
+.intel-cve {
+    background: rgba(255, 59, 78, 0.05);
+}
+
+.intel-vuln {
+    background: rgba(255, 59, 78, 0.03);
+}
+
+.intel-ip {
+    color: var(--text-muted);
+    min-width: 6.5rem;
+    flex-shrink: 0;
+}
+
+.intel-detail {
+    flex: 1;
+    word-break: break-word;
+}
+
+.intel-endpoint {
+    flex-shrink: 0;
+}
+
+/* ── Log Feed ───────────────────────────────────────────────────── */
+.grid-logs {
+    background: var(--bg-primary);
+    overflow-y: auto;
+    padding: 0.4rem 0.75rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.3rem 0.75rem;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+}
+
+.log-header-title {
+    font-family: var(--font-data);
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 0;
+}
+
+#log-feed {
+    padding: 0.3rem 0;
+}
+
+.log-line {
+    display: block;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--accent-green);
+    opacity: 0.85;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-line:last-child {
+    opacity: 1;
+}
+
+.log-error {
+    color: var(--accent-red);
+    opacity: 1;
+}
+
+/* ── Utility ────────────────────────────────────────────────────── */
+.font-data    { font-family: var(--font-data); }
+.text-muted   { color: var(--text-muted); }
+.text-green   { color: var(--accent-green); }
+.text-red     { color: var(--accent-red); }
+.text-amber   { color: var(--accent-amber); }
+.text-cyan    { color: var(--accent-cyan); }
+.text-purple  { color: var(--accent-purple); }
+
+/* Panel section titles */
+.panel-title {
+    font-family: var(--font-data);
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin: 0 0 0.5rem 0;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+}
+
+/* ── Scrollbar styling (Webkit) ─────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* ── SSE container (structural, not visible) ────────────────────── */
+#sse-root {
+    display: contents;
+}
+
+/* ── Responsive: collapse to single column on small screens ─────── */
+@media (max-width: 768px) {
+    .aegis-grid {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr 1fr minmax(100px, 20vh);
+        grid-template-areas:
+            "header"
+            "targets"
+            "intel"
+            "logs";
+    }
+}
