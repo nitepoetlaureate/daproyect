@@ -49,6 +49,16 @@ services:
       - "8888:8888" # API
     restart: unless-stopped
 
+  celery_worker:
+    build: .
+    container_name: aegis_celery_worker
+    command: celery -A celery_app worker --loglevel=info --concurrency=4
+    depends_on:
+      redis_broker:
+        condition: service_healthy
+    env_file: .env
+    restart: unless-stopped
+
 volumes:
   postgis_data:
   redis_data:

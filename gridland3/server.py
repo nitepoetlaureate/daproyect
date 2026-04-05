@@ -1,34 +1,39 @@
 #!/usr/bin/env python3
 """
-FastAPI server launcher for Gridland
+FastAPI server launcher for Gridland.
+
+All scan work is dispatched to Celery workers via Redis.
+Job state is queried directly from Redis via AsyncResult — there is
+no shared in-memory state between this process and the workers.
 """
 import logging
 import os
 from datetime import datetime
-import concurrent.futures
-from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, status
+
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from lib.jobs import create_job, get_job
-from lib.orchestrator import run_scan
+from celery.result import AsyncResult
+
+from celery_app import celery_app
+from lib.tasks import celery_run_scan, celery_run_discover
+
+import secrets
+from itsdangerous import URLSafeSerializer
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI()
-executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-
-import secrets
 
 SECRET_KEY = os.environ.get('SECRET_KEY')
 if SECRET_KEY is None:
     raise ValueError("SECRET_KEY environment variable is mandatory")
 
-from itsdangerous import URLSafeSerializer
 
-# The app has SECRET_KEY defined above
+# ── CSRF + Security Headers Middleware ───────────────────────────────
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     serializer = URLSafeSerializer(SECRET_KEY)
@@ -58,9 +63,7 @@ async def add_security_headers(request: Request, call_next):
         is_valid = False
         if submitted_token and csrf_cookie:
             try:
-                # the submitted token is the signed one, compare with cookie
                 if secrets.compare_digest(submitted_token, csrf_cookie):
-                    # also verify it can be loaded
                     serializer.loads(submitted_token)
                     is_valid = True
             except Exception:
@@ -81,94 +84,90 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     return response
 
+
+# ── Request Models ───────────────────────────────────────────────────
 class ScanRequest(BaseModel):
     target: str
-
-@app.post('/scan', status_code=status.HTTP_202_ACCEPTED)
-async def scan_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
-    target = req.target
-    if not target:
-        return JSONResponse(status_code=400, content={"error": "Target is required"})
-    try:
-        job = create_job(target)
-        executor.submit(run_scan, job.id, target, True, 100)
-        return {"status": "accepted", "job_id": job.id, "target": target, "action": "scan"}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": "Internal server error"})
-
-@app.post('/discover', status_code=status.HTTP_202_ACCEPTED)
-async def discover_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
-    target = req.target
-    if not target:
-        return JSONResponse(status_code=400, content={"error": "Target is required"})
-    try:
-        job = create_job(target)
-        executor.submit(run_scan, job.id, target, False, 100) # Discover is non-aggressive perhaps
-        return {"status": "accepted", "job_id": job.id, "target": target, "action": "discover"}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": "Internal server error"})
-
-
-# Jinja2 templates (assuming templates directory exists at 'gridland3/templates')
-# Note: Jinja2Templates requires jinja2 package. If not installed, it might need to be.
-# Using a simpler fallback or standard HTML response if templating is just static.
-# Flask's `render_template` used `templates` folder by default.
-templates = Jinja2Templates(directory="templates") if os.path.exists("templates") else Jinja2Templates(directory="gridland3/templates") if os.path.exists("gridland3/templates") else None
-
-
-# Configure web interface logging
-def setup_web_logging() -> logging.Logger:
-    """Setup detailed logging for web interface operations"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"gridland_web_server_{timestamp}.log"
-    
-    # Create logs directory if it doesn't exist
-    if not os.path.exists('logs'):
-        os.makedirs('logs')
-    
-    log_path = os.path.join('logs', log_filename)
-    
-    # Configure logger
-    logger = logging.getLogger('gridland_web')
-    logger.setLevel(logging.DEBUG)
-    
-    # Remove existing handlers
-    logger.handlers.clear()
-    
-    # File handler for detailed logs
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setLevel(logging.DEBUG)
-    
-    # Console handler for Flask output -> FastAPI output
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    
-    # Detailed formatter for file
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-    )
-    file_handler.setFormatter(file_formatter)
-    
-    # Simple formatter for console
-    console_formatter = logging.Formatter('%(message)s')
-    console_handler.setFormatter(console_formatter)
-    
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    
-    logger.info(f"=== GRIDLAND WEB SERVER SESSION STARTED ===")
-    logger.info(f"Timestamp: {timestamp}")
-    logger.info(f"Log file: {log_path}")
-    logger.info(f"=" * 50)
-    
-    return logger
-
-# Initialize web logger
-web_logger = setup_web_logging()
 
 class JobRequest(BaseModel):
     target: str
 
+
+# ── Scan / Discover Endpoints ────────────────────────────────────────
+@app.post('/scan', status_code=status.HTTP_202_ACCEPTED)
+async def scan_endpoint(req: ScanRequest, request: Request):
+    if not req.target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        result = celery_run_scan.delay(req.target, True, 100)
+        return {"status": "accepted", "job_id": result.id, "target": req.target, "action": "scan"}
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
+@app.post('/discover', status_code=status.HTTP_202_ACCEPTED)
+async def discover_endpoint(req: ScanRequest, request: Request):
+    if not req.target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        result = celery_run_discover.delay(req.target, 100)
+        return {"status": "accepted", "job_id": result.id, "target": req.target, "action": "discover"}
+    except Exception:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
+# ── Jinja2 Templates ────────────────────────────────────────────────
+templates = (
+    Jinja2Templates(directory="templates") if os.path.exists("templates")
+    else Jinja2Templates(directory="gridland3/templates") if os.path.exists("gridland3/templates")
+    else None
+)
+
+
+# ── Web Logging ──────────────────────────────────────────────────────
+def setup_web_logging() -> logging.Logger:
+    """Setup detailed logging for web interface operations"""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"gridland_web_server_{timestamp}.log"
+
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+
+    log_path = os.path.join('logs', log_filename)
+
+    logger = logging.getLogger('gridland_web')
+    logger.setLevel(logging.DEBUG)
+    logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.DEBUG)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
+    )
+    file_handler.setFormatter(file_formatter)
+
+    console_formatter = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logger.info("=== GRIDLAND WEB SERVER SESSION STARTED ===")
+    logger.info(f"Timestamp: {timestamp}")
+    logger.info(f"Log file: {log_path}")
+    logger.info("=" * 50)
+
+    return logger
+
+
+web_logger = setup_web_logging()
+
+
+# ── HTML Index ───────────────────────────────────────────────────────
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
     """Serves the main HTML page."""
@@ -179,65 +178,85 @@ async def index(request: Request):
         token = request.state.csrf_token
         return templates.TemplateResponse(request, "index.html", {"csrf_token": token})
     else:
-        # Fallback if templates directory doesn't exist during fast iteration
         return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
 
+
+# ── Job Submission (dispatches to Celery) ────────────────────────────
 @app.post('/api/jobs', status_code=status.HTTP_202_ACCEPTED)
-async def submit_job(job_req: JobRequest, background_tasks: BackgroundTasks, request: Request):
+async def submit_job(job_req: JobRequest, request: Request):
     """
     Submits a new scan job.
     Expects a JSON payload with a 'target' key.
+    Returns 202 Accepted with the Celery task ID immediately.
     """
     client_host = request.client.host if request.client else "unknown"
     web_logger.info(f"Job submission request from {client_host}")
-    
-    web_logger.debug(f"Request data: {job_req.model_dump()}")
-    
-    target = job_req.target
-    if not target:
+
+    if not job_req.target:
         web_logger.warning("Job submission failed - missing target")
         return JSONResponse(status_code=400, content={"error": "Target is required"})
 
-    web_logger.info(f"Creating job for target: {target}")
-    
+    web_logger.info(f"Dispatching scan to Celery for target: {job_req.target}")
+
     try:
-        job = create_job(target)
-        web_logger.debug(f"Job created with ID: {job.id}")
+        result = celery_run_scan.delay(job_req.target, True, 100)
+        web_logger.info(f"Task {result.id} dispatched successfully")
+        return {"job_id": result.id}
 
-        # Run the scan in a background task (FastAPI native)
-        web_logger.info(f"Starting background scan task for job {job.id}")
-        executor.submit(run_scan, job.id, target, True, 100) # aggressive=True, threads=100 for now
-        web_logger.debug(f"Background task scheduled for job {job.id}")
-
-        web_logger.info(f"Job {job.id} successfully submitted")
-        return {"job_id": job.id}
-        
     except Exception as e:
         web_logger.error(f"Job submission failed: {str(e)}")
-        web_logger.debug(f"Job submission exception details", exc_info=True)
+        web_logger.debug("Job submission exception details", exc_info=True)
         return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
+
+# ── Job Status (queries Redis via AsyncResult) ───────────────────────
 @app.get('/api/jobs/{job_id}')
 async def get_job_status(job_id: str, request: Request):
     """
     Retrieves the status, logs, and results for a given job.
+    All state is read from Redis via Celery's AsyncResult — zero in-memory lookups.
     """
     client_host = request.client.host if request.client else "unknown"
     web_logger.debug(f"Job status request for {job_id} from {client_host}")
-    
-    try:
-        job = get_job(job_id)
-        if not job:
-            web_logger.warning(f"Job {job_id} not found")
-            return JSONResponse(status_code=404, content={"error": "Job not found"})
 
-        web_logger.debug(f"Returning status for job {job_id}: {job.status}")
-        return job.to_dict()
-        
-    except Exception as e:
-        web_logger.error(f"Error retrieving job {job_id}: {str(e)}")
-        web_logger.debug(f"Job status exception details", exc_info=True)
-        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+    result = AsyncResult(job_id, app=celery_app)
+
+    if result.state == 'PENDING':
+        # PENDING can mean "unknown task" or "not yet started"
+        return {"id": job_id, "status": "pending", "logs": [], "results": []}
+
+    elif result.state == 'STARTED':
+        return {"id": job_id, "status": "running", "logs": [], "results": []}
+
+    elif result.state == 'PROGRESS':
+        meta = result.info or {}
+        return {
+            "id": job_id,
+            "status": "running",
+            "logs": meta.get("logs", []),
+            "results": [],
+        }
+
+    elif result.state == 'SUCCESS':
+        data = result.result or {}
+        return {
+            "id": job_id,
+            "status": "completed",
+            "logs": data.get("logs", []),
+            "results": data.get("results", []),
+        }
+
+    elif result.state in ('FAILURE', 'REVOKED'):
+        web_logger.error(f"Job {job_id} failed: {result.info}")
+        return JSONResponse(
+            status_code=500,
+            content={"id": job_id, "status": "failed", "error": str(result.info)},
+        )
+
+    else:
+        # Catch-all for custom states
+        return {"id": job_id, "status": result.state.lower(), "logs": [], "results": []}
+
 
 if __name__ == '__main__':
     import uvicorn
