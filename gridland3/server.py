@@ -22,7 +22,9 @@ executor = concurrent.futures.ThreadPoolExecutor(max_workers=100)
 
 import secrets
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'default-insecure-key-for-dev')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if SECRET_KEY is None:
+    raise ValueError("SECRET_KEY environment variable is mandatory")
 
 from itsdangerous import URLSafeSerializer
 
@@ -175,7 +177,7 @@ async def index(request: Request):
     web_logger.debug(f"Request from {client_host}")
     if templates:
         token = request.state.csrf_token
-        return templates.TemplateResponse("index.html", {"request": request, "csrf_token": token})
+        return templates.TemplateResponse(name="index.html", context={"request": request, "csrf_token": token})
     else:
         # Fallback if templates directory doesn't exist during fast iteration
         return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
