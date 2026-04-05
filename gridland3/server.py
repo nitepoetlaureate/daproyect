@@ -18,6 +18,77 @@ load_dotenv()
 
 app = FastAPI()
 
+import secrets
+
+SECRET_KEY = os.environ.get('SECRET_KEY', 'default-insecure-key-for-dev')
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    # Get CSRF token from cookie or generate a new one
+    csrf_cookie = request.cookies.get("csrf_token")
+    if not csrf_cookie:
+        csrf_cookie = secrets.token_urlsafe(32)
+        request.state.csrf_token = csrf_cookie
+    else:
+        request.state.csrf_token = csrf_cookie
+
+    # Validate CSRF for mutable methods
+    if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+        # Check header
+        submitted_token = request.headers.get("X-CSRFToken")
+
+        # If not in header, check form data
+        if not submitted_token:
+            try:
+                form = await request.form()
+                submitted_token = form.get("csrf_token")
+            except Exception:
+                pass
+
+        if not submitted_token or not secrets.compare_digest(submitted_token, csrf_cookie):
+            return JSONResponse(status_code=403, content={"error": "CSRF token missing or invalid"})
+
+    response = await call_next(request)
+
+    # Set CSRF cookie if it wasn't there
+    if "csrf_token" not in request.cookies:
+        response.set_cookie("csrf_token", request.state.csrf_token, httponly=True, samesite="lax", secure=False) # secure=False for dev
+
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+class ScanRequest(BaseModel):
+    target: str
+
+@app.post('/scan', status_code=status.HTTP_202_ACCEPTED)
+async def scan_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
+    target = req.target
+    if not target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        job = create_job(target)
+        background_tasks.add_task(run_scan, job.id, target, True, 100)
+        return {"status": "accepted", "job_id": job.id, "target": target, "action": "scan"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+@app.post('/discover', status_code=status.HTTP_202_ACCEPTED)
+async def discover_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
+    target = req.target
+    if not target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        job = create_job(target)
+        background_tasks.add_task(run_scan, job.id, target, False, 100) # Discover is non-aggressive perhaps
+        return {"status": "accepted", "job_id": job.id, "target": target, "action": "discover"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
 # Jinja2 templates (assuming templates directory exists at 'gridland3/templates')
 # Note: Jinja2Templates requires jinja2 package. If not installed, it might need to be.
 # Using a simpler fallback or standard HTML response if templating is just static.
@@ -85,7 +156,8 @@ async def index(request: Request):
     client_host = request.client.host if request.client else "unknown"
     web_logger.debug(f"Request from {client_host}")
     if templates:
-        return templates.TemplateResponse("index.html", {"request": request})
+        token = request.state.csrf_token
+        return templates.TemplateResponse("index.html", {"request": request, "csrf_token": lambda: token})
     else:
         # Fallback if templates directory doesn't exist during fast iteration
         return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
