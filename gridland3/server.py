@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Flask server launcher for Gridland
+FastAPI server launcher for Gridland
 """
-from flask import Flask, render_template, request, jsonify
-from flask import Flask, render_template, request, jsonify
-from flask_talisman import Talisman
-from flask_wtf.csrf import CSRFProtect
-import threading
 import logging
 import os
 from datetime import datetime
+import concurrent.futures
+from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, status
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from lib.jobs import create_job, get_job
 from lib.orchestrator import run_scan
@@ -17,14 +17,104 @@ from lib.orchestrator import run_scan
 # Load environment variables from .env file
 load_dotenv()
 
-app = Flask(__name__, template_folder='templates')
-app.config['SECRET_KEY'] = os.environ['SECRET_KEY']
+app = FastAPI()
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
-# Enable security headers
-talisman = Talisman(app)
+import secrets
 
-# Enable CSRF protection
-csrf = CSRFProtect(app)
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if SECRET_KEY is None:
+    raise ValueError("SECRET_KEY environment variable is mandatory")
+
+from itsdangerous import URLSafeSerializer
+
+# The app has SECRET_KEY defined above
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    serializer = URLSafeSerializer(SECRET_KEY)
+
+    # Get CSRF token from cookie or generate a new one
+    csrf_cookie = request.cookies.get("csrf_token")
+    if not csrf_cookie:
+        raw_token = secrets.token_urlsafe(32)
+        signed_token = serializer.dumps(raw_token)
+        request.state.csrf_token = signed_token
+        csrf_cookie_to_set = signed_token
+    else:
+        request.state.csrf_token = csrf_cookie
+        csrf_cookie_to_set = None
+
+    # Validate CSRF for mutable methods
+    if request.method in ["POST", "PUT", "DELETE", "PATCH"]:
+        submitted_token = request.headers.get("X-CSRFToken")
+        if not submitted_token:
+            try:
+                form = await request.form()
+                submitted_token = form.get("csrf_token")
+            except Exception:
+                pass
+
+        # Validate that we can unsign it and it matches the cookie
+        is_valid = False
+        if submitted_token and csrf_cookie:
+            try:
+                # the submitted token is the signed one, compare with cookie
+                if secrets.compare_digest(submitted_token, csrf_cookie):
+                    # also verify it can be loaded
+                    serializer.loads(submitted_token)
+                    is_valid = True
+            except Exception:
+                pass
+
+        if not is_valid:
+            return JSONResponse(status_code=403, content={"error": "CSRF token missing or invalid"})
+
+    response = await call_next(request)
+
+    if csrf_cookie_to_set:
+        response.set_cookie("csrf_token", csrf_cookie_to_set, httponly=True, samesite="lax", secure=False)
+
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: http:"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+class ScanRequest(BaseModel):
+    target: str
+
+@app.post('/scan', status_code=status.HTTP_202_ACCEPTED)
+async def scan_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
+    target = req.target
+    if not target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        job = create_job(target)
+        executor.submit(run_scan, job.id, target, True, 100)
+        return {"status": "accepted", "job_id": job.id, "target": target, "action": "scan"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+@app.post('/discover', status_code=status.HTTP_202_ACCEPTED)
+async def discover_endpoint(req: ScanRequest, background_tasks: BackgroundTasks, request: Request):
+    target = req.target
+    if not target:
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
+    try:
+        job = create_job(target)
+        executor.submit(run_scan, job.id, target, False, 100) # Discover is non-aggressive perhaps
+        return {"status": "accepted", "job_id": job.id, "target": target, "action": "discover"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
+
+
+# Jinja2 templates (assuming templates directory exists at 'gridland3/templates')
+# Note: Jinja2Templates requires jinja2 package. If not installed, it might need to be.
+# Using a simpler fallback or standard HTML response if templating is just static.
+# Flask's `render_template` used `templates` folder by default.
+templates = Jinja2Templates(directory="templates") if os.path.exists("templates") else Jinja2Templates(directory="gridland3/templates") if os.path.exists("gridland3/templates") else None
+
 
 # Configure web interface logging
 def setup_web_logging() -> logging.Logger:
@@ -49,7 +139,7 @@ def setup_web_logging() -> logging.Logger:
     file_handler = logging.FileHandler(log_path)
     file_handler.setLevel(logging.DEBUG)
     
-    # Console handler for Flask output
+    # Console handler for Flask output -> FastAPI output
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     
@@ -76,74 +166,81 @@ def setup_web_logging() -> logging.Logger:
 # Initialize web logger
 web_logger = setup_web_logging()
 
-@app.route('/')
-def index():
+class JobRequest(BaseModel):
+    target: str
+
+@app.get('/', response_class=HTMLResponse)
+async def index(request: Request):
     """Serves the main HTML page."""
     web_logger.info("Serving main HTML page")
-    web_logger.debug(f"Request from {request.remote_addr}")
-    return render_template('index.html')
+    client_host = request.client.host if request.client else "unknown"
+    web_logger.debug(f"Request from {client_host}")
+    if templates:
+        token = request.state.csrf_token
+        return templates.TemplateResponse(request, "index.html", {"csrf_token": token})
+    else:
+        # Fallback if templates directory doesn't exist during fast iteration
+        return HTMLResponse(content="<h1>Gridland</h1><p>index.html not found</p>")
 
-@app.route('/api/jobs', methods=['POST'])
-def submit_job():
+@app.post('/api/jobs', status_code=status.HTTP_202_ACCEPTED)
+async def submit_job(job_req: JobRequest, background_tasks: BackgroundTasks, request: Request):
     """
     Submits a new scan job.
     Expects a JSON payload with a 'target' key.
     """
-    web_logger.info(f"Job submission request from {request.remote_addr}")
+    client_host = request.client.host if request.client else "unknown"
+    web_logger.info(f"Job submission request from {client_host}")
     
-    data = request.get_json()
-    web_logger.debug(f"Request data: {data}")
+    web_logger.debug(f"Request data: {job_req.model_dump()}")
     
-    if not data or 'target' not in data:
+    target = job_req.target
+    if not target:
         web_logger.warning("Job submission failed - missing target")
-        return jsonify({"error": "Target is required"}), 400
+        return JSONResponse(status_code=400, content={"error": "Target is required"})
 
-    target = data['target']
     web_logger.info(f"Creating job for target: {target}")
     
     try:
         job = create_job(target)
         web_logger.debug(f"Job created with ID: {job.id}")
 
-        # Run the scan in a background thread
-        web_logger.info(f"Starting background scan thread for job {job.id}")
-        scan_thread = threading.Thread(
-            target=run_scan,
-            args=(job.id, target, True, 100)  # aggressive=True, threads=100 for now
-        )
-        scan_thread.start()
-        web_logger.debug(f"Background thread started for job {job.id}")
+        # Run the scan in a background task (FastAPI native)
+        web_logger.info(f"Starting background scan task for job {job.id}")
+        executor.submit(run_scan, job.id, target, True, 100) # aggressive=True, threads=100 for now
+        web_logger.debug(f"Background task scheduled for job {job.id}")
 
         web_logger.info(f"Job {job.id} successfully submitted")
-        return jsonify({"job_id": job.id}), 202
+        return {"job_id": job.id}
         
     except Exception as e:
         web_logger.error(f"Job submission failed: {str(e)}")
         web_logger.debug(f"Job submission exception details", exc_info=True)
-        return jsonify({"error": "Internal server error"}), 500
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
-@app.route('/api/jobs/<job_id>', methods=['GET'])
-def get_job_status(job_id: str):
+@app.get('/api/jobs/{job_id}')
+async def get_job_status(job_id: str, request: Request):
     """
     Retrieves the status, logs, and results for a given job.
     """
-    web_logger.debug(f"Job status request for {job_id} from {request.remote_addr}")
+    client_host = request.client.host if request.client else "unknown"
+    web_logger.debug(f"Job status request for {job_id} from {client_host}")
     
     try:
         job = get_job(job_id)
         if not job:
             web_logger.warning(f"Job {job_id} not found")
-            return jsonify({"error": "Job not found"}), 404
+            return JSONResponse(status_code=404, content={"error": "Job not found"})
 
         web_logger.debug(f"Returning status for job {job_id}: {job.status}")
-        return jsonify(job.to_dict())
+        return job.to_dict()
         
     except Exception as e:
         web_logger.error(f"Error retrieving job {job_id}: {str(e)}")
         web_logger.debug(f"Job status exception details", exc_info=True)
-        return jsonify({"error": "Internal server error"}), 500
+        return JSONResponse(status_code=500, content={"error": "Internal server error"})
 
 if __name__ == '__main__':
-    web_logger.info("Starting Flask development server on port 5001")
+    import uvicorn
+    web_logger.info("Starting FastAPI development server on port 5001")
     web_logger.warning("This is a development server - not for production use")
-    app.run(debug=True, port=5001)
+    uvicorn.run(app, host="127.0.0.1", port=5001)
