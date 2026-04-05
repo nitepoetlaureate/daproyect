@@ -1,11 +1,8 @@
-# Current Mission: Phase 2 - Celery Integration
-**Primary Goal:** Decouple the FastAPI web tier from the legacy scanning engine.
+# Current Mission: Phase 3 - Tactical HTMX UI
+**Primary Goal:** Design and build the real-time scanning dashboard.
 
-**Current State:**
-FastAPI is routing traffic, but `lib.orchestrator.run_scan` is dangerously heavy. 
-
-**Your Tasks:**
-1. Scaffold a `Celery` application instance.
-2. Create Celery tasks that wrap the legacy `run_scan` and `run_discover` functions.
-3. Refactor `server.py` to dispatch jobs to Celery rather than the internal `ThreadPoolExecutor`.
-4. Ensure the endpoints still return a `202 Accepted` with a tracking ID immediately upon dispatch.
+**Phase 3 Execution Steps:**
+1. **Research & Propose:** Research modern, lightweight tactical dashboard layouts (CSS Grid/Flexbox). Propose a wireframe layout to the Human Operator before writing code.
+2. **Establish the Air-Gap:** Download `htmx.min.js` and your chosen CSS framework into the `gridland3/static/` directory.
+3. **Build the Pipeline:** Implement the `/api/stream/{job_id}` endpoint in `server.py` using `EventSourceResponse` to yield HTML fragments from Celery's Redis state.
+4. **Construct the UI:** Build `index.html` using Jinja2 templates, wire up the HTMX forms, and ensure the SSE listener cleanly injects the live scan data into the grid.
