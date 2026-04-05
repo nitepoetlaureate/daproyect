@@ -1,0 +1,56 @@
+{
+    "hikvision": {
+        "headers": ["hikvision", "dvr", "nvr", "hik"],
+        "content": ["hikvision", "hik", "dvr", "nvr", "ip camera", "network camera"],
+        "paths": [
+            "/ISAPI/System/deviceInfo",
+            "/System/configurationFile",
+            "/cgi-bin/magicBox.cgi",
+            "/onvif-http/snapshot"
+        ]
+    },
+    "dahua": {
+        "headers": ["dahua", "dvr", "nvr", "dh"],
+        "content": ["dahua", "dh", "dvr", "nvr", "ip camera", "network camera"],
+        "paths": [
+            "/cgi-bin/magicBox.cgi?action=getSystemInfo",
+            "/cgi-bin/configManager.cgi",
+            "/cgi-bin/devInfo.cgi"
+        ]
+    },
+    "axis": {
+        "headers": ["axis", "axis communications"],
+        "content": ["axis", "axis communications", "network camera", "ip camera"],
+        "paths": [
+            "/axis-cgi/admin/param.cgi?action=list",
+            "/axis-cgi/mjpg/video.cgi",
+            "/axis-cgi/com/ptz.cgi"
+        ]
+    },
+    "cp_plus": {
+        "headers": ["cp plus", "cp-plus", "cpplus", "uvr"],
+        "content": ["cp plus", "cp-plus", "cpplus", "uvr", "0401e1", "dvr", "nvr"],
+        "paths": [
+            "/",
+            "/login",
+            "/admin",
+            "/cgi-bin/snapshot.cgi",
+            "/cgi-bin/video.cgi"
+        ]
+    },
+    "generic": {
+        "headers": ["camera", "webcam", "surveillance", "dvr", "nvr"],
+        "content": ["camera", "webcam", "surveillance", "dvr", "nvr", "ip camera", "network camera"],
+        "paths": [
+            "/",
+            "/admin",
+            "/login",
+            "/viewer",
+            "/video",
+            "/stream",
+            "/snapshot",
+            "/live",
+            "/onvif-http/snapshot"
+        ]
+    }
+}
